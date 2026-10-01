@@ -1,0 +1,3 @@
+[submodule "EcoML-VP"]
+	path = EcoML-VP
+	url = https://github.com/IRCGP-Lab/EcoML-VP.git
