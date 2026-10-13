@@ -4,7 +4,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
-testfiles/
 *.gguf
 !input/GCF_*.fna
-input/*.blastn
