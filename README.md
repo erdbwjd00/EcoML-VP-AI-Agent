@@ -1,6 +1,6 @@
 # EcoML-VP AI Agent
 
-A tool-calling AI agent that analyzes *E. coli* genome FASTA files with the [EcoML-VP](https://github.com/erdbwjd00/EcoML-VP) pipeline, driven by natural-language requests.
+A tool-calling AI agent that analyzes *E. coli* genome FASTA files with the EcoML-VP pipeline, included in this repository, driven by natural-language requests.
 
 The agent talks to **any OpenAI-compatible LLM server that supports tool (function) calling**, so you can bring your own model and inference backend (llama.cpp, vLLM, Ollama, LM Studio, ...). No cloud LLM is required, and your FASTA files stay on your machine.
 
@@ -34,20 +34,18 @@ Reliability and safety features:
 - An OpenAI-compatible LLM server running a model that supports tool calling
 - *E. coli* genome FASTA files (`.fasta`, `.fa`, `.fna`). An example genome (NCBI RefSeq assembly `GCF_000022225.1`) is included in `input/`.
 
-Models and inference servers are not included in this repository. Smaller models may be less reliable at choosing tools and arguments.
+The EcoML-VP pipeline and its prediction model are included in this repository. The Docker image installs BLAST and Abricate and fetches the pinned `abricate_reproducible` files during the image build; users do not need to install Abricate on the host. The LLM model and inference server are not included. Smaller LLMs may be less reliable at choosing tools and arguments.
 
 ## Quick start
 
 ### 1. Clone
 
-`EcoML-VP/` is a Git submodule, so clone with `--recurse-submodules`:
+EcoML-VP is included in this repository, so a regular clone is sufficient:
 
 ```bash
-git clone --recurse-submodules https://github.com/erdbwjd00/EcoML-VP-AI-Agent.git
+git clone https://github.com/erdbwjd00/EcoML-VP-AI-Agent.git
 cd EcoML-VP-AI-Agent
 ```
-
-If you already cloned without it: `git submodule update --init --recursive`
 
 ### 2. Start an LLM server
 
@@ -71,6 +69,8 @@ curl http://127.0.0.1:8080/v1/models
 ```bash
 docker build -t ecoml-vp-ai-agent:latest .
 ```
+
+The Docker build needs internet access to fetch the pinned `abricate_reproducible` source and database files from GitHub. No host-side Abricate installation is required.
 
 ### 4. Run the agent
 
@@ -166,6 +166,7 @@ Run it from the repository root. Use `python -m pytest` rather than `pytest` so 
 | The model answers without running any tool | Tool calling is not enabled on the server, or the model does not support it (for llama.cpp, start with `--jinja`). |
 | `access denied: path must be inside ...` | Use a path under the mounted `/input` directory, not a host path. |
 | `FASTA file not found` | Check the `-v` mount and the file name (`.fasta`, `.fa`, or `.fna`). |
+| `abricate_reproducible/bin/abricate` not found | Rebuild the image and check that the Docker build can reach GitHub to fetch the pinned Abricate files. |
 | Very slow responses | Common on CPU or with reasoning models. Try a smaller or non-reasoning model, or a GPU. Raise `LLM_TIMEOUT_SEC` if requests time out. |
 | `status=max_iterations` | The model kept calling tools without finishing. Try a stronger model or raise `AGENT_MAX_ITERATIONS`. |
 | `status=truncated` | The response hit the token limit. Raise `LLM_MAX_TOKENS`. |
@@ -188,14 +189,16 @@ Check the bundled tools:
 ```bash
 docker run --rm ecoml-vp-ai-agent:latest conda run --no-capture-output -n ecoml blastn -version
 docker run --rm ecoml-vp-ai-agent:latest conda run --no-capture-output -n ecoml abricate --list
+docker run --rm -w /app/EcoML-VP ecoml-vp-ai-agent:latest ./abricate_reproducible/bin/abricate --list
 ```
 
 ## Data and privacy
 
 - FASTA files are mounted at runtime and are never copied into the image.
 - `input/` ships only public NCBI RefSeq example genomes (`GCF_*.fna`). `.gitignore` excludes every other file in that folder, so your own data is not committed by accident.
+- The included `EcoML-VP/` directory contains the pipeline, its prediction model, and reference data tables. Do not add private or unauthorized datasets to the repository.
 - No cloud service is required when you use a local model server.
-- Do not force-add private datasets, model files, or logs to this repository.
+- Do not commit logs or private datasets.
 
 ## Project structure
 
@@ -208,9 +211,9 @@ EcoML-VP-AI-Agent/
 ├── requirements-agent.txt
 ├── requirements-dev.txt
 ├── pytest.ini
-└── EcoML-VP/               # Git submodule
+└── EcoML-VP/               # EcoML-VP pipeline and model files included in this repository
 ```
 
 ## License
 
-See the license of the [EcoML-VP](https://github.com/erdbwjd00/EcoML-VP) project for the underlying analysis pipeline.
+See the license of the EcoML-VP project for the underlying analysis pipeline.
