@@ -1,5 +1,10 @@
+logs/
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
 .env
-.DS_Store
-testfiles/*.fasta
+testfiles/
+*.gguf
+!input/GCF_*.fna
+input/*.blastn

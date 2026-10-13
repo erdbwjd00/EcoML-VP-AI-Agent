@@ -34,6 +34,8 @@ COPY agent.py .
 COPY EcoML-VP/ ./EcoML-VP/
 
 ENV ECOML_VP_DIR=/app/EcoML-VP
-ENV QWEN_BASE_URL=http://qwen-server:8080/v1
+ENV INPUT_DIR=/input
+ENV AGENT_LOG_PATH=/app/logs/agent.jsonl
+RUN mkdir -p /input /app/logs
 
 CMD ["conda", "run", "--no-capture-output", "-n", "ecoml", "python", "-u", "agent.py"]

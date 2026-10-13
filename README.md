@@ -1,315 +1,216 @@
-# EcoML-VP Local AI Agent
+# EcoML-VP AI Agent
 
-A local AI agent for analyzing *E. coli* FASTA files with the [EcoML-VP](https://github.com/erdbwjd00/EcoML-VP) pipeline.
+A tool-calling AI agent that analyzes *E. coli* genome FASTA files with the [EcoML-VP](https://github.com/erdbwjd00/EcoML-VP) pipeline, driven by natural-language requests.
 
-The agent uses a locally hosted Qwen3 model through an OpenAI-compatible API and can invoke the EcoML-VP analysis pipeline as a tool.
+The agent talks to **any OpenAI-compatible LLM server that supports tool (function) calling**, so you can bring your own model and inference backend (llama.cpp, vLLM, Ollama, LM Studio, ...). No cloud LLM is required, and your FASTA files stay on your machine.
 
-## Architecture
+## How it works
 
-```text
-User
-  |
-  v
-EcoML-VP AI Agent
-  |
-  +----> Local Qwen3 Server
-  |       OpenAI-compatible API
-  |       http://127.0.0.1:8080/v1
-  |
-  +----> EcoML-VP
-          |
-          +----> BLAST
-          +----> Abricate
-          +----> ML model
+```
+User request
+     |
+     v
+ Agent (agent.py) <---------> LLM server (OpenAI-compatible API, tool calling)
+     |
+     +--> list_fasta_files(directory)
+     +--> run_ecoml_vp(fasta_path) --> EcoML-VP (BLAST + Abricate + ML model)
+```
 
-The Qwen3 model and the EcoML-VP analysis environment are separate components.
+1. The agent sends your request and the tool definitions to the LLM.
+2. When the LLM asks for a tool, the agent validates the arguments, runs the tool, and returns a structured result (`{"ok": true, "data": ...}` or `{"ok": false, "error": ...}`).
+3. This repeats until the LLM gives a final answer or the iteration limit is reached.
 
-The Docker image contains the EcoML-VP analysis environment, while the local Qwen3 model is provided by a separate inference server.
+Reliability and safety features:
 
-Requirements
-Docker
+- Tools can only access files under the input directory (`/input` in Docker). Path traversal (`../`) and symlink escapes are blocked.
+- The pipeline is launched with an argument list (no shell), a timeout, and size-limited output.
+- Iteration limit, duplicate-call guard, and LLM request timeout/retries prevent runaway loops.
+- Tool errors are passed back to the LLM instead of crashing the agent. The system prompt tells the model to answer only from tool output.
+- Optional JSONL logs record each request, tool call, status, and latency.
 
-A locally running Qwen3-compatible inference server
+## Requirements
 
-An OpenAI-compatible API endpoint for the local model
+- Docker
+- An OpenAI-compatible LLM server running a model that supports tool calling
+- *E. coli* genome FASTA files (`.fasta`, `.fa`, `.fna`). An example genome (NCBI RefSeq assembly `GCF_000022225.1`) is included in `input/`.
 
-An E. coli FASTA file for analysis
+Models and inference servers are not included in this repository. Smaller models may be less reliable at choosing tools and arguments.
 
-The agent has been tested with a Qwen3 model served through an OpenAI-compatible API.
+## Quick start
 
-Project Structure
-EcoML-VP-AI-Agent/
-├── agent.py
-├── Dockerfile
-├── requirements-agent.txt
-├── .gitignore
-├── .gitmodules
-└── EcoML-VP/
+### 1. Clone
 
-EcoML-VP/ is included as a Git submodule.
+`EcoML-VP/` is a Git submodule, so clone with `--recurse-submodules`:
 
-Clone the Repository
-Clone the repository together with its submodule:
-
+```bash
 git clone --recurse-submodules https://github.com/erdbwjd00/EcoML-VP-AI-Agent.git
 cd EcoML-VP-AI-Agent
+```
 
-If the repository was already cloned without submodules:
+If you already cloned without it: `git submodule update --init --recursive`
 
-git submodule update --init --recursive
+### 2. Start an LLM server
 
-1. Start the Local Qwen3 Server
-The AI agent requires a locally running Qwen3-compatible server.
+Use any OpenAI-compatible server with tool calling enabled. Typical defaults:
 
-The server must expose an OpenAI-compatible endpoint such as:
+| Server | Typical base URL | Tool-calling note |
+|---|---|---|
+| llama.cpp (`llama-server`) | `http://127.0.0.1:8080/v1` | start it with `--jinja` |
+| vLLM | `http://127.0.0.1:8000/v1` | enable auto tool choice and a tool-call parser (see vLLM docs) |
+| Ollama | `http://127.0.0.1:11434/v1` | choose a model that supports tools |
+| LM Studio | `http://127.0.0.1:1234/v1` | choose a tool-capable model |
 
-http://127.0.0.1:8080/v1
+Check that the server is up and note the model id:
 
-Verify that the model server is running:
-
+```bash
 curl http://127.0.0.1:8080/v1/models
+```
 
-A successful response should contain at least one available model.
+### 3. Build the image
 
-The exact command used to start the Qwen3 server depends on the inference backend and local hardware. The agent does not download or manage the LLM model itself.
-
-2. Build the Docker Image
-Build the EcoML-VP AI Agent image:
-
+```bash
 docker build -t ecoml-vp-ai-agent:latest .
+```
 
-You can validate the Dockerfile before building:
+### 4. Run the agent
 
-docker build --check .
+**Linux** (container shares the host network):
 
-The image installs:
+```bash
+docker run --rm -it \
+  --network host \
+  -e LLM_BASE_URL=http://127.0.0.1:8080/v1 \
+  -e LLM_MODEL=<model-id> \
+  -v "$(pwd)/input:/input" \
+  -v "$(pwd)/logs:/app/logs" \
+  ecoml-vp-ai-agent:latest
+```
 
-Python 3.9
+**macOS / Windows (Docker Desktop):**
 
-BLAST
+```bash
+docker run --rm -it \
+  -e LLM_BASE_URL=http://host.docker.internal:8080/v1 \
+  -e LLM_MODEL=<model-id> \
+  -v "$(pwd)/input:/input" \
+  -v "$(pwd)/logs:/app/logs" \
+  ecoml-vp-ai-agent:latest
+```
 
-Abricate
+On Docker Desktop the LLM server must accept connections from the container (for llama.cpp, add `--host 0.0.0.0`).
 
-Abricate databases
+Notes:
 
-EcoML-VP Python dependencies
+- `input/` in the repository is mounted as `/input` and contains the example genome. To analyze your own data, put the files in `input/` (git ignores everything there except the examples) or mount another directory instead. The agent can only see files under `/input`.
+- Replace `<model-id>` with an id from the server's `/v1/models` response. Some servers (for example llama.cpp serving a single model) accept any name.
+- Each run handles one request and then exits.
 
-AI Agent dependencies
+### 5. Ask for an analysis
 
-3. Verify the Docker Environment
-Check Python:
+At the `User:` prompt, use container paths:
 
-docker run --rm ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  python --version
+```
+List the FASTA files in /input
+Analyze /input/GCF_000022225.1.fna
+Analyze every FASTA file in /input and summarize each result separately
+```
 
-Check scikit-learn:
+The agent replies in the language you write in, if the model supports it.
 
-docker run --rm ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  python -c "import pandas, sklearn; print('pandas OK'); print('sklearn', sklearn.__version__)"
+When it finishes, it prints a status line:
 
-Check BLAST:
+```
+[status=ok iterations=3 tool_calls=2 latency=41230.5ms]
+```
 
-docker run --rm ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  blastn -version
+`status` is one of `ok`, `max_iterations`, `llm_error`, `empty_response`, or `truncated`.
 
-Check Abricate:
+## Configuration
 
-docker run --rm ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  abricate --version
+All settings are environment variables (`-e NAME=value` with `docker run`).
 
-Check Abricate databases:
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_BASE_URL` | `http://127.0.0.1:8080/v1` | OpenAI-compatible endpoint |
+| `LLM_MODEL` | `default` | Model id sent in each request |
+| `LLM_API_KEY` | `local` | API key, for servers that require one |
+| `INPUT_DIR` | `input/` next to `agent.py` (`/input` in Docker) | The only directory the tools may access; relative paths are resolved against it |
+| `AGENT_MAX_ITERATIONS` | `10` | Maximum LLM/tool rounds per request |
+| `LLM_TIMEOUT_SEC` | `120` | Timeout per LLM request |
+| `LLM_MAX_RETRIES` | `2` | Automatic retries for LLM requests |
+| `LLM_MAX_TOKENS` | `2048` | Max tokens per LLM response (reasoning models need room to think) |
+| `TOOL_TIMEOUT_SEC` | `600` | Timeout for one EcoML-VP run |
+| `AGENT_LOG_PATH` | `/app/logs/agent.jsonl` (Docker) | JSONL log file |
 
-docker run --rm ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  abricate --list
+## Logs
 
-4. Test EcoML-VP Directly
-FASTA files can be mounted into the container.
+Each request appends JSON lines to the log file: `request_start`, `tool_call` (tool name, arguments, success, latency), and `request_end` (status, iterations, total latency). Mount a host directory at `/app/logs` (as in the run commands above) to keep logs after the container exits. Logs can contain your prompts and file paths, so do not commit or share them.
 
-For example, if a FASTA file is located at:
+## Run the tests
 
-/path/to/your/file.fasta
+The tests use a scripted mock LLM, so no model server or Docker is needed.
 
-mount its containing directory:
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
 
+Run it from the repository root. Use `python -m pytest` rather than `pytest` so the root directory is on the import path.
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| `LLM request failed: APIConnectionError` | The server is not reachable. Verify with `curl <LLM_BASE_URL>/models`. On Linux use `--network host`; on Docker Desktop use `host.docker.internal`. |
+| `LLM request failed: NotFoundError` | `LLM_MODEL` does not match a model id from `/v1/models`. |
+| The model answers without running any tool | Tool calling is not enabled on the server, or the model does not support it (for llama.cpp, start with `--jinja`). |
+| `access denied: path must be inside ...` | Use a path under the mounted `/input` directory, not a host path. |
+| `FASTA file not found` | Check the `-v` mount and the file name (`.fasta`, `.fa`, or `.fna`). |
+| Very slow responses | Common on CPU or with reasoning models. Try a smaller or non-reasoning model, or a GPU. Raise `LLM_TIMEOUT_SEC` if requests time out. |
+| `status=max_iterations` | The model kept calling tools without finishing. Try a stronger model or raise `AGENT_MAX_ITERATIONS`. |
+| `status=truncated` | The response hit the token limit. Raise `LLM_MAX_TOKENS`. |
+
+## Optional: verify the Docker environment
+
+Run EcoML-VP directly, without the LLM:
+
+```bash
 docker run --rm \
   -w /app/EcoML-VP \
-  -v "/path/to/your:/input" \
+  -v "$(pwd)/input:/input" \
   ecoml-vp-ai-agent:latest \
   conda run --no-capture-output -n ecoml \
-  python main.py /input/file.fasta
-
-The container should return an EcoML-VP result such as:
-
-Pathotype-negative
-
-The FASTA file remains on the host machine and is mounted into the container at runtime.
-
-5. Run the AI Agent
-To run the interactive local AI agent:
-
-docker run --rm -it \
-  --network host \
-  -e QWEN_BASE_URL=http://127.0.0.1:8080/v1 \
-  ecoml-vp-ai-agent:latest
-
-The agent will display:
-
-========================================
-       EcoML-VP Local AI Agent
-========================================
-
-User:
-
-Enter a natural-language request.
-
-For example:
-
-/input/sample.fasta 파일을 분석해줘
-
-6. Analyze a FASTA File Through the Agent
-Mount the directory containing the FASTA file:
-
-docker run --rm -it \
-  --network host \
-  -e QWEN_BASE_URL=http://127.0.0.1:8080/v1 \
-  -v "/path/to/fasta/files:/input" \
-  ecoml-vp-ai-agent:latest
-
-Then enter:
-
-/input/sample.fasta 파일을 분석해줘
-
-The agent sends the request to the local Qwen3 model.
-
-Qwen3 determines whether the EcoML-VP analysis tool should be called and, when appropriate, invokes the EcoML-VP pipeline with the specified FASTA path.
-
-The resulting analysis is then returned to the user.
-
-7. Docker Networking
-There are two common ways to connect the agent container to the local model server.
-
-Host Networking
-If the Qwen3 server is running directly on the host machine:
-
-docker run --rm -it \
-  --network host \
-  -e QWEN_BASE_URL=http://127.0.0.1:8080/v1 \
-  ecoml-vp-ai-agent:latest
-
-With --network host, the container can access services exposed on the host using 127.0.0.1.
-
-Docker Network
-Alternatively, the Qwen3 server can run in another Docker container on a shared Docker network.
-
-Create a network:
-
-docker network create ecoml-network
-
-The Qwen3 container should be connected to this network with the container name:
-
-qwen-server
-
-The agent can then use:
-
-http://qwen-server:8080/v1
-
-as its API endpoint.
-
-The Dockerfile uses this container-to-container address as its default:
-
-QWEN_BASE_URL=http://qwen-server:8080/v1
-
-When using host networking, override it with:
-
--e QWEN_BASE_URL=http://127.0.0.1:8080/v1
-
-8. FASTA Files and Volumes
-FASTA files do not need to be copied into the Docker image.
-
-Instead, mount a host directory:
-
--v "/path/to/fasta/files:/input"
-
-Then use the container path:
-
-/input/sample.fasta
-
-This keeps user data outside the Docker image.
-
-Do not add private datasets, server-specific directories, or large FASTA files to the Git repository.
-
-9. Troubleshooting
-Qwen3 Connection Error
-Check that the local model server is running:
-
-curl http://127.0.0.1:8080/v1/models
-
-If this works on the host but the agent cannot connect, make sure the agent was started with:
-
---network host
-
-and:
-
--e QWEN_BASE_URL=http://127.0.0.1:8080/v1
-
-qwen-server Cannot Be Resolved
-If you see:
-
-Could not resolve host: qwen-server
-
-the container is not connected to a Docker network containing a container named qwen-server.
-
-Use host networking instead:
-
---network host
-
-and:
-
-QWEN_BASE_URL=http://127.0.0.1:8080/v1
-
-FASTA File Not Found
-Make sure the host directory is mounted:
-
--v "/path/to/fasta/files:/input"
-
-and use the container path:
-
-/input/filename.fasta
-
-BLAST Database Error
-The EcoML-VP E. coli BLAST database is included in the EcoML-VP source tree.
-
-You can verify it with:
-
-docker run --rm \
-  -w /app/EcoML-VP \
-  ecoml-vp-ai-agent:latest \
-  conda run --no-capture-output -n ecoml \
-  blastdbcmd -db ecoli/e.coli_pathotype.fa -info
-
-Privacy and Reproducibility
-The repository does not require hard-coded host-specific paths or IP addresses.
-
-Host-specific values such as:
-
-/path/to/your
-127.0.0.1
-
-are supplied at runtime rather than stored in the repository.
-
-FASTA files can also remain outside the Docker image and be mounted only when needed.
-
-The local Qwen3 server is separate from the Docker image. No cloud LLM service is required by the agent when using a local OpenAI-compatible model endpoint.
-
-Notes
-The Docker image currently uses a Miniconda base image and creates a dedicated Python 3.9 environment for EcoML-VP.
-
-The LLM inference server is intentionally not included in this image because model serving and EcoML-VP analysis are separate workloads.
-
-License
-See the license and documentation of the EcoML-VP project for information about the underlying analysis pipeline.
+  python main.py /input/GCF_000022225.1.fna
+```
+
+Check the bundled tools:
+
+```bash
+docker run --rm ecoml-vp-ai-agent:latest conda run --no-capture-output -n ecoml blastn -version
+docker run --rm ecoml-vp-ai-agent:latest conda run --no-capture-output -n ecoml abricate --list
+```
+
+## Data and privacy
+
+- FASTA files are mounted at runtime and are never copied into the image.
+- `input/` ships only public NCBI RefSeq example genomes (`GCF_*.fna`). `.gitignore` excludes every other file in that folder, so your own data is not committed by accident.
+- No cloud service is required when you use a local model server.
+- Do not force-add private datasets, model files, or logs to this repository.
+
+## Project structure
+
+```
+EcoML-VP-AI-Agent/
+├── agent.py                # agent loop, tools, logging
+├── tests/test_agent.py     # mock-LLM tests
+├── input/                  # example FASTA files (other files here are git-ignored)
+├── Dockerfile
+├── requirements-agent.txt
+├── requirements-dev.txt
+├── pytest.ini
+└── EcoML-VP/               # Git submodule
+```
+
+## License
+
+See the license of the [EcoML-VP](https://github.com/erdbwjd00/EcoML-VP) project for the underlying analysis pipeline.

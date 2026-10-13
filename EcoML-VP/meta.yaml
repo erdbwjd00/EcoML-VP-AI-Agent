@@ -1,0 +1,48 @@
+{% set name = "ecoml-vp" %}
+{% set version = "1.0.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: .
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv
+
+requirements:
+  host:
+    - python >=3.7
+    - pip
+    - setuptools
+  run:
+    - python >=3.7
+    - pandas
+    - scikit-learn ==1.6.1
+    - blast
+    - abricate
+
+test:
+  imports:
+    - main
+  commands:
+    - python -c "import main; print('Import successful')"
+
+about:
+  home: https://github.com/IRCGP-Lab/EcoML-VP
+  license: MIT
+  summary: "EcoML-VP: Machine learning prediction pipeline for E. coli pathogenicity assessment"
+  description: |
+    A machine learning pipeline that uses Random Forest to predict E. coli pathogenicity
+    levels (High-virulence (HV), Latent-virulence (LV), Avirulent) from genomic data using BLAST and abricate
+    analysis.
+  doc_url: https://github.com/IRCGP-Lab/EcoML-VP#readme
+  dev_url: https://github.com/IRCGP-Lab/EcoML-VP
+
+extra:
+  recipe-maintainers:
+    - erdbwjd00
+    - EspressoTonic

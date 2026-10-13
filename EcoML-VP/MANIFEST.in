@@ -1,0 +1,13 @@
+include README.md
+include requirements.txt
+include install.sh
+include LICENSE
+include *.py
+include *.pkl
+include *.csv
+include ecoli/*.fa*
+include testfiles/*.fasta
+recursive-include abricate_reproducible *
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .git*

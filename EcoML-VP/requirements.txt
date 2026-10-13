@@ -1,0 +1,19 @@
+# Python dependencies
+pandas
+scikit-learn==1.6.1
+
+# argparse is part of the Python standard library (no need to install)
+
+# External dependencies (must be installed separately):
+# - blastn (install via conda: `conda install -c bioconda blast` or your system package manager)
+# - abricate (install via conda: `conda install -c bioconda abricate`)
+
+# Perl dependencies (required for abricate):
+# - Path::Tiny
+# - List::MoreUtils
+# - Data::Dumper
+# - File::Basename
+# - File::Spec
+# - Cwd
+# Install via conda: `conda install -c bioconda perl-path-tiny perl-list-moreutils`
+# Or via cpan: `cpan Path::Tiny List::MoreUtils`
