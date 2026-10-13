@@ -14,6 +14,7 @@ RUN conda install -y \
     -c bioconda \
     blast \
     abricate \
+    any2fasta \
     git \
     perl-path-tiny \
     perl-list-moreutils \
