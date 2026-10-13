@@ -5,4 +5,4 @@ __pycache__/
 .venv/
 .env
 *.gguf
-!input/GCF_*.fna
+!input/GCF_000022225.1.fna
